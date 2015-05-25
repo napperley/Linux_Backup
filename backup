@@ -1,0 +1,333 @@
+#!/usr/bin/python
+
+# Does backups using the Grandfather-Father-Son system for a Linux 
+# computer. Script requires Python 2.7 and needs to run as root.
+
+import subprocess
+import sys
+import os
+import datetime
+import grandfatherson
+import shutil
+import json
+import logging
+import tempfile
+
+
+log_path = '/var/log/backup.log'
+dest_flag = '-d'
+src_flag = '-s'
+conf_flag = '-c'
+test_mode = False
+
+
+def _rotate_log():
+    """
+    Rotates the log file when it reaches a certain size by copying its
+    contents to a new file.
+    """
+    # Maximum size of the log file in KB.
+    max_size = 50000
+    # Size of the log file in KB.
+    log_size = 0
+    filename = os.path.basename(log_path)
+    old_log_path = '%s/%s.old' % (os.path.dirname(log_path),
+        filename[:filename.rindex('.')])
+
+    if os.path.exists(log_path) and os.path.isfile(log_path):
+        log_size = os.path.getsize(log_path) / 1000
+        if log_size >= max_size:
+            # Move log file.
+            shutil.move(log_path, old_log_path)
+
+
+def _setup_logging():
+    # Use the following date format: year-month-day 24hour:minute.
+    # Example date: 2004-02-28 14:45:10.
+    date_format = '%Y-%m-%d %H:%M:%S'
+    # Use the following text format: [date] (log level) - log message.
+    # Example text: [2004-02-28 14:45:10] (INFO) - Backup finished.
+    txt_format = '[%(asctime)s] (%(levelname)s) - %(message)s'
+    # Use the main logger for the module.
+    logger = logging.getLogger(__name__)
+    handler = logging.FileHandler(log_path)
+    formatter = logging.Formatter(txt_format, date_format)
+
+    _rotate_log()
+    handler.setFormatter(formatter)
+    # Ensure all info level messages are logged to the log file.
+    handler.setLevel(logging.INFO)
+    # Have all logging written to the log file.
+    logger.addHandler(handler)
+
+
+def _program_arg(arg_flag):
+    """
+    Retrieves the program argument if it exists based on the arg_flag
+    that is passed through to this function.
+    """
+    result = ''
+    pos = -1
+
+    # Go through the program arguments.
+    for arg in sys.argv:
+        pos = pos + 1
+        if arg == arg_flag:
+            if (pos + 1) < len(sys.argv):
+                result = sys.argv[pos + 1]
+            break
+    return result
+
+
+def _run_backup(src, dest, exclude_file_path=''):
+    """
+    Uses rsync to backup files/directories from the source path to the
+    destination path. The following parameters are used for rsync:
+    -a  Backup sym links and other file types.
+    -p  Preserve permissions on files and directories.
+    -O  Ignore setting the modification time on directories
+        and files to avoid errors occuring (with Ext4).
+    -r  Recursively backup directories.
+    -v  Output any info/errors that occur.
+    --delete  Deletes files and directories at the destination, which
+              don't exist on the source side.
+    --exclude-from  Path to text file containing a list of files and
+                    directories to exclude for backup.
+    """
+    args = ['rsync', '-apOrv', '--delete', src, dest]
+    out_type = subprocess.PIPE
+    output = ''
+    process = None
+    start_msg = 'Starting backup for %s to %s...' % (src, dest)
+    finish_msg = 'Finished backup.'
+
+    if exclude_file_path != '':
+        args.append('--exclude-from')
+        args.append(exclude_file_path)
+    # Open a process to be run later. Set output to the console.
+    process = subprocess.Popen(args, stdout=out_type)
+
+    print start_msg
+    logging.info(start_msg)
+    # Run the process (rsync) and capture all terminal output.
+    output = process.communicate()[0]
+    logging.info(output)
+    print finish_msg
+    logging.info(finish_msg)
+
+
+def _check_conf_arg(conf_arg):
+    # Use the main logger for the module.
+    logger = logging.getLogger(__name__)
+    not_found_msg = "Configuration file doesn't exist!"
+    not_file_msg = "Configuration file isn't a file!"
+    error = False
+
+    if not os.path.exists(conf_arg):
+        print not_found_msg
+        logger.error(not_found_msg)
+        error = True
+    elif not os.path.isfile(conf_arg):
+        print not_file_msg
+        logger.error(not_file_msg)
+        error = True
+    return error
+
+
+def _check_src_arg(src_arg):
+    # Use the main logger for the module.
+    logger = logging.getLogger(__name__)
+    error = False
+    not_found_msg = "Source directory doesn't exist!"
+    not_dir_msg = "Source directory isn't a directory!"
+
+    if not os.path.exists(src_arg):
+        print not_found_msg
+        logger.error(not_found_msg)
+        error = True
+    elif not os.path.isdir(src_arg):
+        print not_dir_msg
+        logger.error(not_dir_msg)
+        error = True
+    return error
+
+
+def _check_dest_arg(dest_arg):
+    # Use the main logger for the module.
+    logger = logging.getLogger(__name__)
+    error = False
+    not_found_msg = "Destination directory doesn't exist!"
+    not_dir_msg = "Destination directory isn't a directory!"
+
+    if not os.path.exists(dest_arg):
+        print not_found_msg
+        logger.error(not_found_msg)
+        error = True
+    elif not os.path.isdir(dest_arg):
+        print not_dir_msg
+        logger.error(not_dir_msg)
+        error = True
+    return error
+
+
+def _validate_args():
+    error = False
+    src_arg = _program_arg(src_flag)
+    dest_arg = _program_arg(dest_flag)
+    conf_arg = _program_arg(conf_flag)
+
+    if len(sys.argv) == 1:
+        print 'Usage:'
+        print '  (1) backup -s src_dir_path -d dest_dir_path'
+        print '  (2) backup -c conf_file_path'
+        exit(-1)
+    elif src_arg != '' and dest_arg != '':
+        _check_src_arg(src_arg)
+        _check_dest_arg(dest_arg)
+    elif conf_arg != '':
+        _check_conf_arg(conf_arg)
+
+    if error:
+        exit(-1)
+
+
+def _parse_date(date_val):
+    """
+    Parses the string and returns a Date object if the string is valid,
+    None if the string is invalid.
+    """
+    result = None
+    # Use the following date format: year-month-day.
+    # Example date: 2004-02-28.
+    date_format = '%Y-%m-%d'
+
+    try:
+        result = datetime.datetime.strptime(date_val,
+            date_format).date()
+    except ValueError:
+        pass
+    return result
+
+
+def backup_dates(backup_dir):
+    """
+    Retrieves a list containing dates of all backups that exist in the
+    specified backup directory.
+    """
+    result = []
+    tmp_date = None
+
+    if os.path.exists(backup_dir) and os.path.isdir(backup_dir):
+        for item in os.listdir(backup_dir):
+            if os.path.isdir('%s/%s' % (backup_dir, item)):
+                tmp_date = _parse_date(item)
+                if tmp_date is not None:
+                    result.append(tmp_date)
+    return result
+
+
+def remove_stale_backups(backup_dir):
+    """
+    Removes all out of date backups based on the Grandfather-Father-Son
+    system.
+    """
+    # Use the main logger for the module.
+    logger = logging.getLogger(__name__)
+    mon = grandfatherson.MONDAY
+    backups = backup_dates(backup_dir)
+    # Number of yearly backups to keep.
+    years = 1
+    # Number of monthly backups to keep.
+    months = 3
+    # Number of daily backups to keep.
+    days = 6
+    # Number of weekly backups to keep.
+    weeks = 1
+    to_delete = set()
+    start_msg = 'Removing stale backups in %s ...' % backup_dir
+    finish_msg = 'Stale backups removed in %s' % backup_dir
+
+    to_delete = grandfatherson.dates_to_delete(backups, years=years,
+        months=months, weeks=weeks, days=days, firstweekday=mon)
+    print start_msg
+    logger.info(start_msg)
+    for item in to_delete:
+        # Recursively remove the backup (directory).
+        shutil.rmtree('%s/%s' % (backup_dir, item), ignore_errors=True)
+    print finish_msg
+    logger.info(finish_msg)
+
+
+def _read_conf_file(conf_file_path):
+    # Use the main logger for the module.
+    logger = logging.getLogger(__name__)
+    result = []
+    error_msg = """Cannot read %s configuration file.
+    Please fix the file and run backup again.""" % conf_file_path
+
+    with open(conf_file_path, 'r') as f:
+        try:
+            result = json.load(f)['backups']
+        except ValueError:
+            print error_msg
+            logger.error(error_msg)
+    return result
+
+
+def _create_exclude_file(dirs_to_exclude):
+    """
+    Creates a temporary file containing a list of directories to 
+    exclude from a backup when running rsync.
+    """
+    exclude_file = tempfile.NamedTemporaryFile(mode='w', 
+        prefix='backup_', dir='/tmp', delete=False)
+
+    with exclude_file:
+        for a_dir in dirs_to_exclude:
+            exclude_file.write('%s\n' % a_dir)
+    return exclude_file
+
+
+def create_multiple_backups(conf):
+    today = datetime.date.today()
+    exclude_file = None
+    backup_dir_path = ''
+
+    for item in conf:
+        backup_dir_path = '%s/%s' % (item['dest-dir'], today)
+        if 'exclude-dirs' in item:
+            exclude_file = _create_exclude_file(item['exclude-dirs'])
+            _run_backup(item['src-dir'], backup_dir_path, 
+                exclude_file.name)
+            # Delete the exclude file.
+            os.remove(exclude_file.name)
+        else:
+            _run_backup(item['src-dir'], backup_dir_path)
+
+
+def create_backup(src, dest):
+    today = datetime.date.today()
+    backup_dir_path = '%s/%s' % (dest, today)
+
+    _run_backup(src, backup_dir_path)
+
+
+if __name__ == '__main__':
+    conf = []
+    conf_file_path = ''
+
+    if test_mode:
+        log_path = '/tmp/backup.log'
+    _setup_logging()
+    _validate_args()
+    conf_file_path = _program_arg(conf_flag)
+    if conf_file_path != '':
+        conf = _read_conf_file(conf_file_path)
+        if len(conf) == 0:
+            exit(-1)
+        for item in conf:
+            remove_stale_backups(item['dest-dir'])
+        create_multiple_backups(conf)
+    else:
+        remove_stale_backups(_program_arg(dest_flag))
+        create_backup(_program_arg(src_flag), _program_arg(dest_flag))
