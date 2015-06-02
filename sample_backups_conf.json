@@ -1,0 +1,16 @@
+{
+    "backups": [
+        {
+            "src-dir": "/etc",
+            "dest-dir": "/media/Backup",
+        },
+        {
+            "src-dir": "/media/Data/shares",
+            "dest-dir": "/media/Backup",
+            "exclude-dirs": [
+                "public/disk_images",
+                "public/Software"
+            ]
+        }
+    ]
+}
