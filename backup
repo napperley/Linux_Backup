@@ -13,7 +13,6 @@ import json
 import logging
 import tempfile
 
-
 log_path = '/var/log/backup.log'
 dest_flag = '-d'
 src_flag = '-s'
@@ -28,13 +27,12 @@ def _rotate_log():
     """
     # Maximum size of the log file in KB.
     max_size = 50000
-    # Size of the log file in KB.
-    log_size = 0
     filename = os.path.basename(log_path)
     old_log_path = '%s/%s.old' % (os.path.dirname(log_path),
-        filename[:filename.rindex('.')])
+                                  filename[:filename.rindex('.')])
 
     if os.path.exists(log_path) and os.path.isfile(log_path):
+        # Size of the log file in KB.
         log_size = os.path.getsize(log_path) / 1000
         if log_size >= max_size:
             # Move log file.
@@ -55,23 +53,25 @@ def _setup_logging():
 
     _rotate_log()
     handler.setFormatter(formatter)
-    # Ensure all info level messages are logged to the log file.
+    # Ensure all info level messages are logged.
     handler.setLevel(logging.INFO)
-    # Have all logging written to the log file.
+    # Have all log messages saved to the log file.
     logger.addHandler(handler)
 
 
 def _program_arg(arg_flag):
     """
-    Retrieves the program argument if it exists based on the arg_flag
-    that is passed through to this function.
+    Retrieves the program argument.
+
+    :param arg_flag: Argument flag representing the argument to retrieve.
+    :return: The argument if found, otherwise an empty string is returned.
     """
     result = ''
     pos = -1
 
     # Go through the program arguments.
     for arg in sys.argv:
-        pos = pos + 1
+        pos += 1
         if arg == arg_flag:
             if (pos + 1) < len(sys.argv):
                 result = sys.argv[pos + 1]
@@ -93,11 +93,14 @@ def _run_backup(src, dest, exclude_file_path=''):
               don't exist on the source side.
     --exclude-from  Path to text file containing a list of files and
                     directories to exclude for backup.
+
+    :param src: Path to an existing source directory.
+    :param dest: Path to an existing destination directory.
+    :param exclude_file_path: Path to exclude file containing a list of
+        directories to exclude from the backup.
     """
     args = ['rsync', '-apOrv', '--delete', src, dest]
     out_type = subprocess.PIPE
-    output = ''
-    process = None
     start_msg = 'Starting backup for %s to %s...' % (src, dest)
     finish_msg = 'Finished backup.'
 
@@ -193,8 +196,10 @@ def _validate_args():
 
 def _parse_date(date_val):
     """
-    Parses the string and returns a Date object if the string is valid,
-    None if the string is invalid.
+    Parses a string and returns a Date object.
+
+    :param date_val: The string representing the date.
+    :return: A Date object if date_val is valid, otherwise None is returned.
     """
     result = None
     # Use the following date format: year-month-day.
@@ -203,7 +208,7 @@ def _parse_date(date_val):
 
     try:
         result = datetime.datetime.strptime(date_val,
-            date_format).date()
+                                            date_format).date()
     except ValueError:
         pass
     return result
@@ -213,14 +218,17 @@ def backup_dates(backup_dir):
     """
     Retrieves a list containing dates of all backups that exist in the
     specified backup directory.
+
+    :param backup_dir: Path to the backup directory.
+    :return: A list containing backup dates in the the following format: year-month-day,
+        otherwise an empty list is returned.
     """
     result = []
-    tmp_date = None
 
     if os.path.exists(backup_dir) and os.path.isdir(backup_dir):
-        for item in os.listdir(backup_dir):
-            if os.path.isdir('%s/%s' % (backup_dir, item)):
-                tmp_date = _parse_date(item)
+        for file_item in os.listdir(backup_dir):
+            if os.path.isdir('%s/%s' % (backup_dir, file_item)):
+                tmp_date = _parse_date(file_item)
                 if tmp_date is not None:
                     result.append(tmp_date)
     return result
@@ -230,6 +238,8 @@ def remove_stale_backups(backup_dir):
     """
     Removes all out of date backups based on the Grandfather-Father-Son
     system.
+
+    :param backup_dir: Path to the backup directory.
     """
     # Use the main logger for the module.
     logger = logging.getLogger(__name__)
@@ -243,22 +253,29 @@ def remove_stale_backups(backup_dir):
     days = 6
     # Number of weekly backups to keep.
     weeks = 1
-    to_delete = set()
     start_msg = 'Removing stale backups in %s ...' % backup_dir
     finish_msg = 'Stale backups removed in %s' % backup_dir
 
     to_delete = grandfatherson.dates_to_delete(backups, years=years,
-        months=months, weeks=weeks, days=days, firstweekday=mon)
+                                               months=months, weeks=weeks, days=days, firstweekday=mon)
     print start_msg
     logger.info(start_msg)
-    for item in to_delete:
+    for date_item in to_delete:
         # Recursively remove the backup (directory).
-        shutil.rmtree('%s/%s' % (backup_dir, item), ignore_errors=True)
+        shutil.rmtree('%s/%s' % (backup_dir, date_item), ignore_errors=True)
     print finish_msg
     logger.info(finish_msg)
 
 
 def _read_conf_file(conf_file_path):
+    """
+    Reads values from a configuration file and returns the results.
+
+    :param conf_file_path: Path to the configuration file (a JSON file).
+    :return: A list representing a configuration file (refer to Python's
+        json module documentation), otherwise an empty list is returned
+        if the configuration file cannot be read.
+    """
     # Use the main logger for the module.
     logger = logging.getLogger(__name__)
     result = []
@@ -276,11 +293,14 @@ def _read_conf_file(conf_file_path):
 
 def _create_exclude_file(dirs_to_exclude):
     """
-    Creates a temporary file containing a list of directories to 
+    Creates a temporary file containing a list of directories to
     exclude from a backup when running rsync.
+
+    :param dirs_to_exclude: A list of directories to exclude.
+    :return: A temporary File object pointing to the temporary exclude file.
     """
-    exclude_file = tempfile.NamedTemporaryFile(mode='w', 
-        prefix='backup_', dir='/tmp', delete=False)
+    exclude_file = tempfile.NamedTemporaryFile(mode='w',
+                                               prefix='backup_', dir='/tmp', delete=False)
 
     with exclude_file:
         for a_dir in dirs_to_exclude:
@@ -289,35 +309,39 @@ def _create_exclude_file(dirs_to_exclude):
 
 
 def create_multiple_backups(conf):
-    today = datetime.date.today()
-    exclude_file = None
-    backup_dir_path = ''
+    """
+    Creates multiple backups as defined in the configuration.
 
-    for item in conf:
-        backup_dir_path = '%s/%s' % (item['dest-dir'], today)
-        if 'exclude-dirs' in item:
-            exclude_file = _create_exclude_file(item['exclude-dirs'])
-            _run_backup(item['src-dir'], backup_dir_path, 
-                exclude_file.name)
+    :param conf: A list containing the configuration.
+    """
+    today = datetime.date.today()
+
+    for conf_item in conf:
+        backup_dir_path = '%s/%s' % (conf_item['dest-dir'], today)
+        if 'exclude-dirs' in conf_item:
+            exclude_file = _create_exclude_file(conf_item['exclude-dirs'])
+            _run_backup(conf_item['src-dir'], backup_dir_path,
+                        exclude_file.name)
             # Delete the exclude file.
             os.remove(exclude_file.name)
         else:
-            _run_backup(item['src-dir'], backup_dir_path)
+            _run_backup(conf_item['src-dir'], backup_dir_path)
 
 
 def create_backup(src, dest):
+    """
+    Creates a single backup of a directory.
+
+    :param src: Path to the directory to backup.
+    :param dest: Path to the destination directory.
+    """
     today = datetime.date.today()
     backup_dir_path = '%s/%s' % (dest, today)
 
     _run_backup(src, backup_dir_path)
 
 
-if __name__ == '__main__':
-    conf = []
-    conf_file_path = ''
-
-    if test_mode:
-        log_path = '/tmp/backup.log'
+def _main():
     _setup_logging()
     _validate_args()
     conf_file_path = _program_arg(conf_flag)
@@ -331,3 +355,8 @@ if __name__ == '__main__':
     else:
         remove_stale_backups(_program_arg(dest_flag))
         create_backup(_program_arg(src_flag), _program_arg(dest_flag))
+
+if __name__ == '__main__':
+    if test_mode:
+        log_path = '/tmp/backup.log'
+    _main()
