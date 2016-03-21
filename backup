@@ -1,7 +1,20 @@
-#!/usr/bin/python
+#!/usr/bin/python2.7
 
-# Does backups using the Grandfather-Father-Son system for a Linux 
-# computer. Script requires Python 2.7 and needs to run as root.
+"""
+Copyright 2016 Nick Apperley
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 import subprocess
 import sys
@@ -12,12 +25,23 @@ import shutil
 import json
 import logging
 import tempfile
+import setproctitle as proc_title
+
+"""
+Does backups using the Grandfather-Father-Son system for a Linux
+computer. Script requires Python 2.7, and needs to run as root. The following
+Python packages need to be installed:
+
+    * grandfatherson
+    * setproctitle
+"""
 
 log_path = '/var/log/backup.log'
 dest_flag = '-d'
 src_flag = '-s'
 conf_flag = '-c'
 test_mode = False
+rsync_process = None
 
 
 def _rotate_log():
@@ -48,9 +72,15 @@ def _setup_logging():
     txt_format = '[%(asctime)s] (%(levelname)s) - %(message)s'
     # Use the main logger for the module.
     logger = logging.getLogger(__name__)
-    handler = logging.FileHandler(log_path)
+    handler = None
     formatter = logging.Formatter(txt_format, date_format)
 
+    try:
+        handler = logging.FileHandler(log_path)
+    except IOError:
+        print 'Cannot setup %s as the log file. ' \
+              'Do you have the right permissions to create/edit/remove the log file?\n' % log_path
+        exit(-1)
     _rotate_log()
     handler.setFormatter(formatter)
     # Ensure all info level messages are logged.
@@ -85,6 +115,7 @@ def _run_backup(src, dest, exclude_file_path=''):
     destination path. The following parameters are used for rsync:
     -a  Backup sym links and other file types.
     -p  Preserve permissions on files and directories.
+    -A  Preserve ACL's (Access Control Lists).
     -O  Ignore setting the modification time on directories
         and files to avoid errors occuring (with Ext4).
     -r  Recursively backup directories.
@@ -99,21 +130,22 @@ def _run_backup(src, dest, exclude_file_path=''):
     :param exclude_file_path: Path to exclude file containing a list of
         directories to exclude from the backup.
     """
-    args = ['rsync', '-apOrv', '--delete', src, dest]
+    global rsync_process
+    args = ['rsync', '-apAOrv', '--delete', src, dest]
     out_type = subprocess.PIPE
     start_msg = 'Starting backup for %s to %s...' % (src, dest)
     finish_msg = 'Finished backup.'
 
-    if exclude_file_path != '':
+    if exclude_file_path is not '':
         args.append('--exclude-from')
         args.append(exclude_file_path)
     # Open a process to be run later. Set output to the console.
-    process = subprocess.Popen(args, stdout=out_type)
+    rsync_process = subprocess.Popen(args, stdout=out_type)
 
     print start_msg
     logging.info(start_msg)
     # Run the process (rsync) and capture all terminal output.
-    output = process.communicate()[0]
+    output = rsync_process.communicate()[0]
     logging.info(output)
     print finish_msg
     logging.info(finish_msg)
@@ -124,73 +156,80 @@ def _check_conf_arg(conf_arg):
     logger = logging.getLogger(__name__)
     not_found_msg = "Configuration file doesn't exist!"
     not_file_msg = "Configuration file isn't a file!"
-    error = False
+    valid = True
 
     if not os.path.exists(conf_arg):
         print not_found_msg
         logger.error(not_found_msg)
-        error = True
+        valid = False
     elif not os.path.isfile(conf_arg):
         print not_file_msg
         logger.error(not_file_msg)
-        error = True
-    return error
+        valid = False
+    return valid
 
 
 def _check_src_arg(src_arg):
     # Use the main logger for the module.
     logger = logging.getLogger(__name__)
-    error = False
+    valid = True
     not_found_msg = "Source directory doesn't exist!"
     not_dir_msg = "Source directory isn't a directory!"
 
     if not os.path.exists(src_arg):
         print not_found_msg
         logger.error(not_found_msg)
-        error = True
+        valid = False
     elif not os.path.isdir(src_arg):
         print not_dir_msg
         logger.error(not_dir_msg)
-        error = True
-    return error
+        valid = False
+    return valid
 
 
 def _check_dest_arg(dest_arg):
     # Use the main logger for the module.
     logger = logging.getLogger(__name__)
-    error = False
+    valid = True
     not_found_msg = "Destination directory doesn't exist!"
     not_dir_msg = "Destination directory isn't a directory!"
 
     if not os.path.exists(dest_arg):
         print not_found_msg
         logger.error(not_found_msg)
-        error = True
+        valid = False
     elif not os.path.isdir(dest_arg):
         print not_dir_msg
         logger.error(not_dir_msg)
-        error = True
-    return error
+        valid = False
+    return valid
 
 
 def _validate_args():
-    error = False
+    valid = True
     src_arg = _program_arg(src_flag)
     dest_arg = _program_arg(dest_flag)
     conf_arg = _program_arg(conf_flag)
+    usage_msg = """
+    Usage:
+      (1) backup -s src_dir_path -d dest_dir_path
+      (2) backup -c conf_file_path
+    """
 
     if len(sys.argv) == 1:
-        print 'Usage:'
-        print '  (1) backup -s src_dir_path -d dest_dir_path'
-        print '  (2) backup -c conf_file_path'
-        exit(-1)
-    elif src_arg != '' and dest_arg != '':
-        _check_src_arg(src_arg)
-        _check_dest_arg(dest_arg)
-    elif conf_arg != '':
-        _check_conf_arg(conf_arg)
+        print usage_msg
+        valid = False
+    elif src_arg is not '' and dest_arg is not '':
+        if _check_src_arg(src_arg) is False or _check_dest_arg(dest_arg) is False:
+            valid = False
+    elif conf_arg is not '':
+        if _check_conf_arg(conf_arg) is False:
+            valid = False
+    else:
+        print usage_msg
+        valid = False
 
-    if error:
+    if not valid:
         exit(-1)
 
 
@@ -236,8 +275,7 @@ def backup_dates(backup_dir):
 
 def remove_stale_backups(backup_dir):
     """
-    Removes all out of date backups based on the Grandfather-Father-Son
-    system.
+    Removes all out of date backups based on the Grandfather-Father-Son system.
 
     :param backup_dir: Path to the backup directory.
     """
@@ -254,7 +292,7 @@ def remove_stale_backups(backup_dir):
     # Number of weekly backups to keep.
     weeks = 1
     start_msg = 'Removing stale backups in %s ...' % backup_dir
-    finish_msg = 'Stale backups removed in %s' % backup_dir
+    finish_msg = 'Stale backups removed in %s.' % backup_dir
 
     to_delete = grandfatherson.dates_to_delete(backups, years=years,
                                                months=months, weeks=weeks, days=days, firstweekday=mon)
@@ -342,19 +380,28 @@ def create_backup(src, dest):
 
 
 def _main():
-    _setup_logging()
-    _validate_args()
-    conf_file_path = _program_arg(conf_flag)
-    if conf_file_path != '':
-        conf = _read_conf_file(conf_file_path)
-        if len(conf) == 0:
-            exit(-1)
-        for item in conf:
-            remove_stale_backups(item['dest-dir'])
-        create_multiple_backups(conf)
-    else:
-        remove_stale_backups(_program_arg(dest_flag))
-        create_backup(_program_arg(src_flag), _program_arg(dest_flag))
+    proc_title.setproctitle('linux_backup')
+    try:
+        _setup_logging()
+        _validate_args()
+        conf_file_path = _program_arg(conf_flag)
+
+        if conf_file_path is not '':
+            conf = _read_conf_file(conf_file_path)
+            if len(conf) == 0:
+                exit(-1)
+            for item in conf:
+                remove_stale_backups(item['dest-dir'])
+            create_multiple_backups(conf)
+        else:
+            remove_stale_backups(_program_arg(dest_flag))
+            create_backup(_program_arg(src_flag), _program_arg(dest_flag))
+    except KeyboardInterrupt:
+        print 'Exiting...'
+        if rsync_process is not None:
+            rsync_process.kill()
+        exit()
+
 
 if __name__ == '__main__':
     if test_mode:
