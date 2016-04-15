@@ -1,0 +1,37 @@
+{
+  "prog-flags": {
+    "dest": "-d",
+    "src": "-s",
+    "backups-conf": "-c"
+  },
+  "backups": {
+    "max": 4,
+    "yearly": 1,
+    "monthly": 3,
+    "weekly": 1,
+    "daily": 6
+  },
+  "messages": {
+    "info": {
+      "backup-started": "Starting backup for {} to {}...",
+      "backup-finished": "Finished backup.",
+      "del-backups-started": "Removing stale backups in {} ...",
+      "del-backups-finished": "Stale backups removed in {}.",
+      "exit": "Exiting..."
+    },
+    "warn": {
+    },
+    "error": {
+      "backups-conf-not-found": "Backups configuration file doesn't exist!",
+      "backups-conf-not-file": "Backups configuration file isn't a file!",
+      "src-dir-not-found": "Source directory doesn't exist!",
+      "src-dir-not-dir": "Source directory isn't a directory!",
+      "dest-dir-not-found": "Destination directory doesn't exist!",
+      "dest-dir-not-dir": "Destination directory isn't a directory!",
+      "log-setup": "Cannot setup log file {}. Are the permissions for the log file correct?",
+      "invalid-backups-conf": "Cannot read backups configuration file {}. Please fix the file and run backup again."
+    }
+  },
+  "log-path": "/var/log/backup.log",
+  "proc-title": "linux_backup"
+}
