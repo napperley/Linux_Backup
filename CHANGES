@@ -7,3 +7,10 @@ Revision 2016-04-15
 
 - Added feature to limit the number of backups that exist
 - Configuration of the program is now done through a JSON file
+
+
+Revision 2016-04-27
+--------------------
+
+- Switched from Python 2.7 to Python 3
+- Removed GrandFatherSon backup functionality

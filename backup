@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/python3
 
 """
 Copyright 2016 Nick Apperley
@@ -20,7 +20,6 @@ import subprocess
 import sys
 import os
 import datetime
-import grandfatherson as gfs
 import shutil
 import json
 import logging
@@ -29,11 +28,9 @@ import setproctitle as proc_title
 from signal import signal, SIGTERM
 
 """
-Does backups using the Grandfather-Father-Son system for a Linux
-computer. Script requires Python 2.7, and needs to run as root. The following
-Python packages need to be installed:
+Does backups for a Linux computer. Script requires Python 3, and needs to run
+as root. The following Python packages need to be installed:
 
-    * grandfatherson
     * setproctitle
 """
 
@@ -77,7 +74,7 @@ def _setup_logging():
     try:
         handler = logging.FileHandler(conf['log-path'])
     except IOError:
-        print conf['messages']['error']['log-setup'].format(conf['log-path'])
+        print(conf['messages']['error']['log-setup'].format(conf['log-path']))
         exit(-1)
     _rotate_log()
     handler.setFormatter(formatter)
@@ -139,12 +136,12 @@ def _run_backup(src, dest, exclude_file_path=''):
     # Open a process to be run later. Set output to the console.
     rsync_process = subprocess.Popen(args, stdout=out_type)
 
-    print start_msg
+    print(start_msg)
     logging.info(start_msg)
     # Run the process (rsync) and capture all terminal output.
     output = rsync_process.communicate()[0]
     logging.info(output)
-    print conf['messages']['info']['backup-finished']
+    print(conf['messages']['info']['backup-finished'])
     logging.info(conf['messages']['info']['backup-finished'])
 
 
@@ -154,11 +151,11 @@ def _check_backups_conf_arg(backups_conf_arg):
     valid = True
 
     if not os.path.exists(backups_conf_arg):
-        print conf['messages']['error']['backups-conf-not-found']
+        print(conf['messages']['error']['backups-conf-not-found'])
         logger.error(conf['messages']['error']['backups-conf-not-found'])
         valid = False
     elif not os.path.isfile(backups_conf_arg):
-        print conf['messages']['error']['backups-conf-not-file']
+        print(conf['messages']['error']['backups-conf-not-file'])
         logger.error(conf['messages']['error']['backups-conf-not-file'])
         valid = False
     return valid
@@ -170,11 +167,11 @@ def _check_src_arg(src_arg):
     valid = True
 
     if not os.path.exists(src_arg):
-        print conf['messages']['error']['src-dir-not-found']
+        print(conf['messages']['error']['src-dir-not-found'])
         logger.error(conf['messages']['error']['src-dir-not-found'])
         valid = False
     elif not os.path.isdir(src_arg):
-        print conf['messages']['error']['src-dir-not-dir']
+        print(conf['messages']['error']['src-dir-not-dir'])
         logger.error(conf['messages']['error']['src-dir-not-dir'])
         valid = False
     return valid
@@ -186,11 +183,11 @@ def _check_dest_arg(dest_arg):
     valid = True
 
     if not os.path.exists(dest_arg):
-        print conf['messages']['error']['dest-dir-not-found']
+        print(conf['messages']['error']['dest-dir-not-found'])
         logger.error(conf['messages']['error']['dest-dir-not-found'])
         valid = False
     elif not os.path.isdir(dest_arg):
-        print conf['messages']['error']['dest-dir-not-dir']
+        print(conf['messages']['error']['dest-dir-not-dir'])
         logger.error(conf['messages']['error']['dest-dir-not-dir'])
         valid = False
     return valid
@@ -208,7 +205,7 @@ def _validate_args():
     """
 
     if len(sys.argv) == 1:
-        print usage_msg
+        print(usage_msg)
         valid = False
     elif src_arg is not '' and dest_arg is not '':
         if _check_src_arg(src_arg) is False or \
@@ -218,7 +215,7 @@ def _validate_args():
         if _check_backups_conf_arg(backups_conf_arg) is False:
             valid = False
     else:
-        print usage_msg
+        print(usage_msg)
         valid = False
 
     if not valid:
@@ -267,43 +264,27 @@ def backup_dates(backup_dir):
 
 def remove_stale_backups(backup_dir):
     """
-    Removes all out of date backups based on the Grandfather-Father-Son system.
+    Removes unneeded backups.
 
     :param backup_dir: Path to the backup directory.
     """
     # Use the main logger for the module.
     logger = logging.getLogger(__name__)
-    mon = gfs.MONDAY
-    backups = backup_dates(backup_dir)
-
+    pos = 0
     start_msg = conf['messages']['info']['del-backups-started'].format(
         backup_dir)
     finish_msg = conf['messages']['info']['del-backups-finished'].format(
         backup_dir)
-    to_delete = gfs.dates_to_delete(backups, years=conf['backups']['yearly'],
-                                    months=conf['backups']['monthly'],
-                                    weeks=conf['backups']['weekly'],
-                                    days=conf['backups']['daily'],
-                                    firstweekday=mon)
 
-    print start_msg
+    print(start_msg)
     logger.info(start_msg)
-    for date_item in to_delete:
-        # Recursively remove the backup (directory).
-        shutil.rmtree('{}/{}'.format(backup_dir, date_item),
-                      ignore_errors=True)
-    _trim_backups(backup_dir)
-    print finish_msg
-    logger.info(finish_msg)
-
-
-def _trim_backups(backup_dir):
-    pos = 0
-
     for item in sorted(backup_dates(backup_dir), reverse=True):
         pos += 1
         if pos > conf['backups']['max']:
+            # Recursively remove the backup (directory).
             shutil.rmtree('{}/{}'.format(backup_dir, item), ignore_errors=True)
+    print(finish_msg)
+    logger.info(finish_msg)
 
 
 def _read_backups_conf(backups_conf_path):
@@ -326,7 +307,7 @@ def _read_backups_conf(backups_conf_path):
         try:
             result = json.load(bcf)['backups']
         except ValueError:
-            print error_msg
+            print(error_msg)
             logger.error(error_msg)
     return result
 
@@ -383,9 +364,6 @@ def create_backup(src, dest):
 
 
 def _main():
-    # Reload the module in order to setup the default encoding.
-    reload(sys)
-    sys.setdefaultencoding('UTF8')
     proc_title.setproctitle(conf['proc-title'])
     # Setup a handler for the kill signal.
     signal(SIGTERM, lambda signum, frame: _cleanup())
@@ -412,7 +390,7 @@ def _main():
 
 
 def _cleanup():
-    print conf['messages']['info']['exit']
+    print(conf['messages']['info']['exit'])
     if rsync_process is not None:
         rsync_process.kill()
     exit()
@@ -423,8 +401,8 @@ if __name__ == '__main__':
         try:
             conf = json.load(pcf)
         except ValueError:
-            print "Cannot load the program's configuration file." \
-                  'Please fix the file and run backup again.'
+            print("Cannot load the program's configuration file."
+                  'Please fix the file and run backup again.')
             exit(-1)
     if test_mode:
         conf['log-path'] = '/tmp/backup.log'
