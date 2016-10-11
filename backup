@@ -104,21 +104,35 @@ def _program_arg(arg_flag):
     return result
 
 
-def _run_backup(src, dest, exclude_file_path=''):
+def _rsync_args(src, dest, exclude_file_path=''):
+    # The following rsync args are used:
+
+    # -a  Backup sym links and other file types.
+    # -p  Preserve permissions on files and directories.
+    # -A  Preserve ACL's (Access Control Lists).
+    # -O  Ignore setting the modification time on directories
+    #    and files to avoid errors occuring (with Ext4).
+    # -r  Recursively backup directories.
+    # -v  Output any info/errors that occur.
+    # -b  Do a backup
+    # --backup-dir  Specify the name of the backup directory
+    # --delete  Deletes files and directories at the destination, which
+    #           don't exist on the source side.
+    # --exclude-from  Path to text file containing a list of files and
+    #                 directories to exclude for backup.
+    args = ['rsync', '-apAOrvb', '--backup-dir={}'.format(
+        datetime.date.today()), '--delete', src, dest]
+
+    if exclude_file_path is not '':
+        args.append('--exclude-from')
+        args.append(exclude_file_path)
+    return args
+
+
+def do_backup(src, dest, exclude_file_path=''):
     """
     Uses rsync to backup files/directories from the source path to the
-    destination path. The following parameters are used for rsync:
-    -a  Backup sym links and other file types.
-    -p  Preserve permissions on files and directories.
-    -A  Preserve ACL's (Access Control Lists).
-    -O  Ignore setting the modification time on directories
-        and files to avoid errors occuring (with Ext4).
-    -r  Recursively backup directories.
-    -v  Output any info/errors that occur.
-    --delete  Deletes files and directories at the destination, which
-              don't exist on the source side.
-    --exclude-from  Path to text file containing a list of files and
-                    directories to exclude for backup.
+    destination path.
 
     :param src: Path to an existing source directory.
     :param dest: Path to an existing destination directory.
@@ -126,15 +140,12 @@ def _run_backup(src, dest, exclude_file_path=''):
         directories to exclude from the backup.
     """
     global rsync_process
-    args = ['rsync', '-apAOrv', '--delete', src, dest]
     out_type = subprocess.PIPE
     start_msg = conf['messages']['info']['backup-started'].format(src, dest)
 
-    if exclude_file_path is not '':
-        args.append('--exclude-from')
-        args.append(exclude_file_path)
     # Open a process to be run later. Set output to the console.
-    rsync_process = subprocess.Popen(args, stdout=out_type)
+    rsync_process = subprocess.Popen(_rsync_args(
+        src, dest, exclude_file_path), stdout=out_type)
 
     print(start_msg)
     logging.info(start_msg)
@@ -320,9 +331,8 @@ def _create_exclude_file(dirs_to_exclude):
     :param dirs_to_exclude: A list of directories to exclude.
     :return: A temporary File object pointing to the temporary exclude file.
     """
-    exclude_file = tempfile.NamedTemporaryFile(mode='w',
-                                               prefix='backup_', dir='/tmp',
-                                               delete=False)
+    exclude_file = tempfile.NamedTemporaryFile(mode='w', prefix='backup_',
+                                               dir='/tmp', delete=False)
 
     with exclude_file:
         for a_dir in dirs_to_exclude:
@@ -336,31 +346,16 @@ def create_multiple_backups(backups_conf):
 
     :param backups_conf: A list containing the configuration.
     """
-    today = datetime.date.today()
 
     for conf_item in backups_conf:
-        backup_dir_path = '{}/{}'.format(conf_item['dest-dir'], today)
         if 'exclude-dirs' in conf_item:
             exclude_file = _create_exclude_file(conf_item['exclude-dirs'])
-            _run_backup(conf_item['src-dir'], backup_dir_path,
-                        exclude_file.name)
+            do_backup(conf_item['src-dir'], conf_item['dest-dir'],
+                      exclude_file.name)
             # Delete the exclude file.
             os.remove(exclude_file.name)
         else:
-            _run_backup(conf_item['src-dir'], backup_dir_path)
-
-
-def create_backup(src, dest):
-    """
-    Creates a single backup of a directory.
-
-    :param src: Path to the directory to backup.
-    :param dest: Path to the destination directory.
-    """
-    today = datetime.date.today()
-    backup_dir_path = '{}/{}'.format(dest, today)
-
-    _run_backup(src, backup_dir_path)
+            do_backup(conf_item['src-dir'], conf_item['dest-dir'])
 
 
 def _main():
@@ -383,8 +378,8 @@ def _main():
             create_multiple_backups(backups_conf)
         else:
             remove_stale_backups(_program_arg(conf['prog-flags']['dest']))
-            create_backup(_program_arg(conf['prog-flags']['src']),
-                          _program_arg(conf['prog-flags']['dest']))
+            do_backup(_program_arg(conf['prog-flags']['src']),
+                      _program_arg(conf['prog-flags']['dest']))
     except KeyboardInterrupt:
         _cleanup()
 

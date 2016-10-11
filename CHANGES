@@ -14,3 +14,9 @@ Revision 2016-04-27
 
 - Switched from Python 2.7 to Python 3
 - Removed GrandFatherSon backup functionality
+
+
+Revision 2016-10-11
+--------------------
+
+- Setup rsync to do differential backups instead of full ones
